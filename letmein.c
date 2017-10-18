@@ -5,10 +5,11 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include "cJSON.h"
-#include "cJSON.c"
+#include "json/cJSON.h"
+#include "json/cJSON.c"
 
 #define KEYLEN 16
+#define HEADER_SIZE 20
 
 /* store len bytes of entropy in arr */
 void get_random_bytes(unsigned char *arr, int len)
@@ -178,7 +179,8 @@ int main(int argc, char *argv[])
 
 	fclose(passfile);
 
-	cJSON *root = cJSON_Parse(buf);
+	// json starts at offset HEADER_SIZE
+	cJSON *root = cJSON_Parse(buf + HEADER_SIZE);
 	printf("%s\n", cJSON_Print(root));
 
 	/*parse_args(argv, in, out);*/
