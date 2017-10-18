@@ -35,7 +35,9 @@ void key_from_password(char *pass, int passlen, unsigned char *key)
 }
 
 // do_encrypt -> 1 = encryption, 0 = decryption
-int do_crypt(FILE *in, FILE *out, int do_encrypt, unsigned char *key)
+// writes the decrypted contents to *out
+int do_crypt(FILE *in, FILE *outfile, char *out, int do_encrypt,
+	     unsigned char *key)
 {
 	/* Allow enough space in output buffer for additional block */
 	unsigned char inbuf[1024], outbuf[1024 + EVP_MAX_BLOCK_LENGTH];
@@ -64,22 +66,32 @@ int do_crypt(FILE *in, FILE *out, int do_encrypt, unsigned char *key)
 	for(;;) 
 	{
 		inlen = fread(inbuf, 1, 1024, in);
-		if(inlen <= 0) break;
+		if(inlen <= 0)
+			break;
 		if(!EVP_CipherUpdate(&ctx, outbuf, &outlen, inbuf, inlen))
 		{
 			/* Error */
 			EVP_CIPHER_CTX_cleanup(&ctx);
 			return 0;
 		}
-		fwrite(outbuf, 1, outlen, out);
+		if (do_encrypt == 1)
+			fwrite(outbuf, 1, outlen, outfile);
+		else
+			memcpy(out, outbuf, outlen);
 	}
+	int lenbefore = outlen;
 	if(!EVP_CipherFinal_ex(&ctx, outbuf, &outlen))
 	{
 		/* Error */
 		EVP_CIPHER_CTX_cleanup(&ctx);
 		return 0;
 	}
-	fwrite(outbuf, 1, outlen, out);
+	if (do_encrypt == 1) {
+		fwrite(outbuf, 1, outlen, outfile);
+	} else {
+		memcpy(out + lenbefore, outbuf, outlen);
+		out[lenbefore + outlen + 1] = '\0';
+	}
 
 	EVP_CIPHER_CTX_cleanup(&ctx);
 	return 1;
@@ -160,21 +172,16 @@ int main(int argc, char *argv[])
 	key_from_password(pass, strlen(pass), key);
 
 	FILE *passfile = fopen("shadow.letmein", "r");
-	FILE *temp = fopen("shadow.temp", "wb");
+	char buf[4096];
 
-	do_crypt(passfile, temp, 0, key);
+	do_crypt(passfile, NULL, buf, 0, key);
 
-	fclose(temp);
 	fclose(passfile);
-	temp = fopen("shadow.temp", "r");
-	char * jsonstring = read_file(temp);
-	cJSON *root = cJSON_Parse(jsonstring);
+
+	cJSON *root = cJSON_Parse(buf);
 	printf("%s\n", cJSON_Print(root));
 
 	/*parse_args(argv, in, out);*/
 
 	cJSON_Delete(root);
-	free(jsonstring);
-	/*fclose(in);*/
-	/*fclose(out);*/
 }
