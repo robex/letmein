@@ -5,6 +5,8 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include "cJSON.h"
+#include "cJSON.c"
 
 #define KEYLEN 16
 
@@ -24,12 +26,6 @@ void get_iv(unsigned char *arr, int len)
 	FILE *ivfile = fopen("iv.txt", "r");
 	fread(arr, 1, len, ivfile);
 	fclose(ivfile);
-}
-
-void get_crypt_entropy(unsigned char *arr, int len)
-{
-	printf("Enter 16 random chars for password entropy generation\n");
-	fgets((char*)arr, len, stdin);
 }
 
 /* Gets unsalted hash from password *pass, returns key in *key */
@@ -55,8 +51,6 @@ int do_crypt(FILE *in, FILE *out, int do_encrypt, unsigned char *key)
 	else
 		exit(1);
 		
-	/*get_crypt_entropy(iv, sizeof(iv));*/
-
 	/* Don't set key or IV right away; we want to check lengths */
 	EVP_CIPHER_CTX_init(&ctx);
 	EVP_CipherInit_ex(&ctx, EVP_aes_128_cbc(), NULL, NULL, NULL,
@@ -99,32 +93,88 @@ void print_usage()
 		"-d: decrypt\n");
 }
 
-// add iv (initialization vector), random data
-int main(int argc, char *argv[])
+/*void parse_args(char *argv[], FILE *in, FILE *out)*/
+/*{*/
+	/*char *opt = argv[1];*/
+	/*char *infile = argv[2];*/
+	/*char *outfile = argv[3];*/
+
+	/*in = fopen(infile, "r");*/
+	/*out = fopen(outfile, "wb");*/
+	
+	/*if (!strcmp(opt, "-e")) {*/
+		/*do_crypt(in, out, 1, key);*/
+	/*} else if (!strcmp(opt, "-d")) {*/
+		/*do_crypt(in, out, 0, key);*/
+	/*}*/
+/*}*/
+
+void read_passwd(char *pass, int len)
 {
-	if (argc < 4) {
-		print_usage();
+	printf("Enter password:\n");
+	fgets(pass, len, stdin);
+}
+
+char *read_file(FILE *fp)
+{
+	char *buf;
+	long len;
+
+	if (!fp) {
+		perror("shadow.temp");
 		exit(1);
 	}
 
-	char *opt = argv[1];
-	char *infile = argv[2];
-	char *outfile = argv[3];
+	fseek(fp, 0L, SEEK_END);
+	len = ftell(fp);
+	rewind(fp);
+
+	buf = calloc(1, len + 1);
+	if (!buf) {
+		fclose(fp);
+		fputs("malloc fail", stderr);
+		exit(1);
+	}
+
+	if (fread(buf, len, 1, fp) != 1) {
+		fclose(fp);
+		free(buf);
+		fputs("read fail", stderr);
+		exit(1);
+	}
+	fclose(fp);
+	return buf;
+}
+
+// add iv (initialization vector), random data
+int main(int argc, char *argv[])
+{
+	/*if (argc < 4) {*/
+		/*print_usage();*/
+		/*exit(1);*/
+	/*}*/
 
 	char pass[40];
 	unsigned char key[16];
-	printf("Enter password:\n");
-	fgets(pass, sizeof(pass), stdin);
+	read_passwd(pass, sizeof(pass));
 	key_from_password(pass, strlen(pass), key);
 
-	FILE *in = fopen(infile, "r");
-	FILE *out = fopen(outfile, "wb");
+	FILE *passfile = fopen("shadow.letmein", "r");
+	FILE *temp = fopen("shadow.temp", "wb");
 
-	if (!strcmp(opt, "-e")) {
-		do_crypt(in, out, 1, key);
-	} else if (!strcmp(opt, "-d")) {
-		do_crypt(in, out, 0, key);
-	}
-	fclose(in);
-	fclose(out);
+	do_crypt(passfile, temp, 0, key);
+
+	fclose(temp);
+	fclose(passfile);
+	temp = fopen("shadow.temp", "r");
+	char * jsonstring = read_file(temp);
+	cJSON *root = cJSON_Parse(jsonstring);
+	printf("%s\n", cJSON_Print(root));
+
+	/*parse_args(argv, in, out);*/
+
+	cJSON_Delete(root);
+	free(jsonstring);
+	/*fclose(in);*/
+	/*fclose(out);*/
 }
