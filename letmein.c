@@ -9,7 +9,8 @@
 #include "json/cJSON.c"
 
 #define KEYLEN 16
-#define HEADER_SIZE 17
+#define IV_HEADER_SIZE 33	// 32 + newline
+#define HASH_HEADER_SIZE 33
 #define NWORDS 5
 
 /* Splits the given null-terminated string str[] by the spaces.
@@ -29,20 +30,26 @@ int splitstring(char *str, char *splits[], int len)
 /* store len bytes of entropy in arr */
 void get_random_bytes(unsigned char *arr, int len)
 {
-	FILE *ivfile = fopen("iv.txt", "wb");
 	int fd = open("/dev/urandom", O_RDONLY);
 	read(fd, arr, len);
-	fwrite(arr, 1, len, ivfile);
-	fclose(ivfile);
 	close(fd);
 }
 
 /* read initialization vector into string arr */
-void get_iv(unsigned char *arr, int len)
+void get_iv(char *filename, unsigned char *arr, int len)
 {
-	FILE *ivfile = fopen("iv.txt", "r");
-	fread(arr, 1, len, ivfile);
+	char   hexiv[len*2];
+	char   *pos = hexiv;
+	FILE   *ivfile = fopen(filename, "r");
+
+	fread(hexiv, 1, len*2, ivfile);
 	fclose(ivfile);
+
+	// translate from hex string back to char array
+	for(size_t count = 0; count < KEYLEN; count++) {
+		sscanf(pos, "%2hhx", &arr[count]);
+		pos += 2;
+	}
 }
 
 /* Gets unsalted hash from password *pass, returns key in *key */
@@ -54,7 +61,7 @@ void key_from_password(char *pass, int passlen, unsigned char *key)
 // do_encrypt -> 1 = encryption, 0 = decryption
 // writes the decrypted contents to *out
 int do_crypt(FILE *infile, char *in, FILE *outfile, char *out,
-	     int do_encrypt, unsigned char *key)
+	     int do_encrypt, unsigned char *key, unsigned char *iv)
 {
 	/* Allow enough space in output buffer for additional block */
 	unsigned char  inbuf[1024];
@@ -62,15 +69,6 @@ int do_crypt(FILE *infile, char *in, FILE *outfile, char *out,
 	int 	       inlen;
 	int	       outlen;
 	EVP_CIPHER_CTX ctx;
-
-	unsigned char  iv[KEYLEN];
-
-	if (do_encrypt == 0)
-		get_iv(iv, sizeof(iv));
-	else if (do_encrypt == 1)
-		get_random_bytes(iv, sizeof(iv));
-	else
-		exit(1);
 		
 	/* Don't set key or IV right away; we want to check lengths */
 	EVP_CIPHER_CTX_init(&ctx);
@@ -180,14 +178,22 @@ void create_pass_file(char *filename)
 	char data_json[1024];
 
 	char pass[40];
-	unsigned char key[16];
+	unsigned char key[KEYLEN];
+	unsigned char iv[KEYLEN];
+	
+	get_random_bytes(iv, sizeof(iv));
 	read_passwd(pass, sizeof(pass));
 	key_from_password(pass, strlen(pass), key);
 
-	// convert key to hex
+	// convert key and iv to hex
 	unsigned char key_hex[32];
+	unsigned char iv_hex[33];
 	for (int i = 0; i < 16; i++)
 		sprintf((char*)key_hex + i*2, "%02x", key[i]);
+	for (int i = 0; i < 16; i++)
+		sprintf((char*)iv_hex + i*2, "%02x", iv[i]);
+
+	iv_hex[32] = '\n';
 
 	// copy key to beginning of data_json
 	memcpy(data_json, key_hex, sizeof(key_hex));
@@ -204,11 +210,35 @@ void create_pass_file(char *filename)
 	/*printf("%s\n", data_json);*/
 
 	FILE *passfile = fopen(filename, "wb");
+	// add iv_hex to beginning of file, dont encrypt in
+	fwrite(iv_hex, 1, sizeof(iv_hex), passfile);
+	// set the file pointer after the iv
+	fseek(passfile, 32 + 1, 0);
 
-	do_crypt(NULL, data_json, passfile, NULL, 1, key);
+	do_crypt(NULL, data_json, passfile, NULL, 1, key, iv);
 	// dont forget to clean up!
 	cJSON_Delete(root);
 	fclose(passfile);
+}
+
+/* Decrypt and print the contents of file *filename */
+void print_decrypt(char *filename)
+{
+	unsigned char key[KEYLEN];
+	unsigned char iv[KEYLEN];
+	FILE 	      *f = fopen(filename, "r");
+	char	      decr_file[2048];
+	char	      pass[40];
+
+	read_passwd(pass, sizeof(pass));
+	key_from_password(pass, strlen(pass), key);
+	get_iv(filename, iv, sizeof(iv));
+	// set the file pointer after the (plaintext) iv header
+	fseek(f, IV_HEADER_SIZE, 0);
+	do_crypt(f, NULL, NULL, decr_file, 0, key, iv);
+
+	printf("file: %s\n", decr_file);
+	fclose(f);
 }
 
 void parse_insert(char *args[], int nstr)
@@ -216,6 +246,13 @@ void parse_insert(char *args[], int nstr)
 	char filename[40];
 	sprintf(filename, "%s.letmein", args[0]);
 	create_pass_file(filename);
+}
+
+void parse_list(char *args[], int nstr)
+{
+	char filename[40];
+	sprintf(filename, "%s.letmein", args[0]);
+	print_decrypt(filename);
 }
 
 void parse_arg(char *splits[], int nstr, short *quitshell)
@@ -229,6 +266,8 @@ void parse_arg(char *splits[], int nstr, short *quitshell)
 			printf("dunno man, read the manual\n");
 		} else if (!strcmp(splits[0], "insert")) {
 			parse_insert(splits + 1, nstr - 1);
+		} else if (!strcmp(splits[0], "list")) {
+			parse_list(splits + 1, nstr - 1);
 		} else {
 			printf("Unknown command. Type help for a list of "
 			       "commands.\n");
@@ -250,24 +289,4 @@ int main(int argc, char *argv[])
 		nstr = splitstring(buffer, splits, NWORDS);
 		parse_arg(splits, nstr, &quit);
 	}
-
-	char pass[40];
-	unsigned char key[16];
-	read_passwd(pass, sizeof(pass));
-	key_from_password(pass, strlen(pass), key);
-
-	FILE *passfile = fopen("shadow.letmein", "r");
-	char buf[4096];
-
-	do_crypt(passfile, NULL, NULL, buf, 0, key);
-
-	fclose(passfile);
-
-	// json starts at offset HEADER_SIZE
-	cJSON *root = cJSON_Parse(buf + HEADER_SIZE);
-	printf("%s\n", cJSON_Print(root));
-
-	/*parse_args(argv, in, out);*/
-
-	cJSON_Delete(root);
 }
