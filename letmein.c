@@ -13,6 +13,10 @@
 #define HASH_HEADER_SIZE 33
 #define NWORDS 5
 
+int  FILE_OPEN = 0;	// is passwd file open
+char OPEN_FILENAME[64]; // filename
+char *openfile;
+
 /* Splits the given null-terminated string str[] by the spaces.
  * The resulting words are stored in splits[]. Returns the # of words */
 int splitstring(char *str, char *splits[], int len)
@@ -171,15 +175,26 @@ char *read_file(FILE *fp)
 	return buf;
 }
 
+void char_to_hex(unsigned char *key, unsigned char *key_hex, int len)
+{
+	for (int i = 0; i < len; i++)
+		sprintf((char*)key_hex + i*2, "%02x", key[i]);
+}
+
 /* Creates a password storage file filename, consisting of the
  * hash (in hex) and the json data */
 void create_pass_file(char *filename)
 {
-	char data_json[1024];
-
-	char pass[40];
 	unsigned char key[KEYLEN];
 	unsigned char iv[KEYLEN];
+	char 	      data_json[1024];
+	char 	      pass[40];
+
+	// file exists
+	if (access(filename, F_OK) != -1) {
+		printf("fatal: file %s already exists\n", filename);
+		return;
+	}
 	
 	get_random_bytes(iv, sizeof(iv));
 	read_passwd(pass, sizeof(pass));
@@ -188,10 +203,9 @@ void create_pass_file(char *filename)
 	// convert key and iv to hex
 	unsigned char key_hex[32];
 	unsigned char iv_hex[33];
-	for (int i = 0; i < 16; i++)
-		sprintf((char*)key_hex + i*2, "%02x", key[i]);
-	for (int i = 0; i < 16; i++)
-		sprintf((char*)iv_hex + i*2, "%02x", iv[i]);
+
+	char_to_hex(key, key_hex, KEYLEN);
+	char_to_hex(iv, iv_hex, KEYLEN);
 
 	iv_hex[32] = '\n';
 
@@ -201,8 +215,8 @@ void create_pass_file(char *filename)
 	data_json[sizeof(key_hex)] = '\n';
 
 	cJSON *root;
+	// create empty json object
 	root = cJSON_CreateObject();
-	cJSON_AddItemToObject(root, "site", cJSON_CreateString("fc.com"));
 	char *json = cJSON_Print(root);
 
 	// copy json string after the 0xKey
@@ -221,24 +235,35 @@ void create_pass_file(char *filename)
 	fclose(passfile);
 }
 
-/* Decrypt and print the contents of file *filename */
-void print_decrypt(char *filename)
+/* Decrypt and return the contents of file *filename
+ * Return 1 on succesful decrypt, 0 otherwise */
+int decrypt_file(char *filename, char *decrstr)
 {
 	unsigned char key[KEYLEN];
 	unsigned char iv[KEYLEN];
+	unsigned char key_hex[2 * KEYLEN];
 	FILE 	      *f = fopen(filename, "r");
-	char	      decr_file[2048];
 	char	      pass[40];
+
+	// file does not exist
+	if (access(filename, F_OK) == -1)
+		return 2;
 
 	read_passwd(pass, sizeof(pass));
 	key_from_password(pass, strlen(pass), key);
 	get_iv(filename, iv, sizeof(iv));
+	char_to_hex(key, key_hex, KEYLEN);
 	// set the file pointer after the (plaintext) iv header
 	fseek(f, IV_HEADER_SIZE, 0);
-	do_crypt(f, NULL, NULL, decr_file, 0, key, iv);
+	do_crypt(f, NULL, NULL, decrstr, 0, key, iv);
 
-	printf("file: %s\n", decr_file);
 	fclose(f);
+
+	// compare inputted key with decrypted one, stored in the file
+	if (memcmp(key_hex, decrstr, KEYLEN * 2) == 0)
+		return 1;
+	else
+		return 0;
 }
 
 void parse_insert(char *args[], int nstr)
@@ -248,11 +273,24 @@ void parse_insert(char *args[], int nstr)
 	create_pass_file(filename);
 }
 
-void parse_list(char *args[], int nstr)
+void parse_open(char *args[], int nstr)
 {
 	char filename[40];
+	int  status;
 	sprintf(filename, "%s.letmein", args[0]);
-	print_decrypt(filename);
+	openfile = malloc(2048 * sizeof(char));
+	status = decrypt_file(filename, openfile);
+	if (status == 1) {
+		FILE_OPEN = 1;
+		strcpy(OPEN_FILENAME, filename);
+		printf("Opened file %s\n", OPEN_FILENAME);
+	} else if (status == 0) {
+		printf("%s: Invalid password\n", filename);
+		free(openfile);
+	} else if (status == 2) {
+		printf("fatal: file %s doesn't exist\n", filename);
+		free(openfile);
+	}
 }
 
 void parse_arg(char *splits[], int nstr, short *quitshell)
@@ -266,8 +304,8 @@ void parse_arg(char *splits[], int nstr, short *quitshell)
 			printf("dunno man, read the manual\n");
 		} else if (!strcmp(splits[0], "insert")) {
 			parse_insert(splits + 1, nstr - 1);
-		} else if (!strcmp(splits[0], "list")) {
-			parse_list(splits + 1, nstr - 1);
+		} else if (!strcmp(splits[0], "open")) {
+			parse_open(splits + 1, nstr - 1);
 		} else {
 			printf("Unknown command. Type help for a list of "
 			       "commands.\n");
