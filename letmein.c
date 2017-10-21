@@ -4,6 +4,7 @@
 int  FILE_OPEN = 0;	// is passwd file open
 char OPEN_FILENAME[64]; // filename
 char *openfile;
+cJSON *openfile_json_root;
 
 /* Splits the given null-terminated string str[] by the spaces.
  * The resulting words are stored in splits[]. Returns the # of words */
@@ -35,8 +36,8 @@ ssize_t get_pass(char **lineptr, size_t *n, FILE *stream)
 		return -1;
 
 	/* Read the password. */
-	printf("Enter password: ");
 	nread = getline(lineptr, n, stream);
+	printf("\n");
 
 	/* Restore terminal. */
 	(void)tcsetattr(fileno (stream), TCSAFLUSH, &old);
@@ -199,6 +200,7 @@ void create_pass_file(char *filename)
 	
 	pass = malloc(passlen * sizeof(char));
 	get_random_bytes(iv, sizeof(iv));
+	printf("Enter password: ");
 	get_pass(&pass, &passlen, stdin);
 	// newline after no-echo passwd input
 	printf("\n");
@@ -256,6 +258,7 @@ int decrypt_file(char *filename, char *decrstr)
 		return 2;
 
 	pass = malloc(passlen * sizeof(char));
+	printf("Enter password: ");
 	get_pass(&pass, &passlen, stdin);
 	key_from_password(pass, strlen(pass), key);
 	free(pass);
@@ -272,6 +275,69 @@ int decrypt_file(char *filename, char *decrstr)
 		return 1;
 	else
 		return 0;
+}
+
+void read_no_newline(char *buf, int len)
+{
+	fgets(buf, len, stdin);
+	buf[strcspn(buf, "\n")] = 0;
+}
+
+int add_new(char *args[], int nstr)
+{
+	char   title[64];
+	char   site_url[64];
+	char   *passwd;
+	char   *passwd_repeat;
+	size_t passlen = 40;
+	char   username[64];
+	char   email[64];
+	char   notes[256];
+
+	// no file is open
+	if (!FILE_OPEN) {
+		printf("fatal: no open file.\n");
+		return 0;
+	}
+
+	printf("Title: ");
+	read_no_newline(title, sizeof(title));
+	printf("Username: ");
+	read_no_newline(username, sizeof(username));
+	printf("Password: ");
+	passwd = malloc(passlen * sizeof(char));
+	passwd_repeat = malloc(passlen * sizeof(char));
+	get_pass(&passwd, &passlen, stdin);
+	passwd[strcspn(passwd, "\n")] = 0;
+	printf("Repeat password: ");
+	get_pass(&passwd_repeat, &passlen, stdin);
+	passwd_repeat[strcspn(passwd_repeat, "\n")] = 0;
+	// passwords are different
+	if (strcmp(passwd, passwd_repeat)) {
+		printf("Passwords do not match. Aborting...\n");
+		free(passwd);
+		free(passwd_repeat);
+		return 0;
+	}
+	printf("URL: ");
+	read_no_newline(site_url, sizeof(site_url));
+	printf("Email: ");
+	read_no_newline(email, sizeof(email));
+	printf("Notes: ");
+	read_no_newline(notes, sizeof(notes));
+	
+	cJSON *entry = cJSON_CreateObject();
+	cJSON_AddItemToObject(openfile_json_root, title, entry);
+	cJSON_AddStringToObject(entry, "username", username);
+	cJSON_AddStringToObject(entry, "site_url", site_url);
+	cJSON_AddStringToObject(entry, "passwd", passwd);
+	cJSON_AddStringToObject(entry, "email", email);
+	cJSON_AddStringToObject(entry, "notes", notes);
+
+	printf("%s\n", cJSON_Print(openfile_json_root));
+	free(passwd);
+	free(passwd_repeat);
+	return 1;
 }
 
 void parse_insert(char *args[], int nstr)
@@ -291,6 +357,7 @@ void parse_open(char *args[], int nstr)
 	if (status == 1) {
 		FILE_OPEN = 1;
 		strcpy(OPEN_FILENAME, filename);
+		openfile_json_root = cJSON_Parse(openfile + IV_HEADER_SIZE);
 		printf("Opened file %s\n", OPEN_FILENAME);
 	} else if (status == 0) {
 		printf("%s: Invalid password\n", filename);
@@ -303,7 +370,7 @@ void parse_open(char *args[], int nstr)
 
 void parse_add(char *args[], int nstr)
 {
-	
+	add_new(args, nstr);
 }
 
 void print_usage()
