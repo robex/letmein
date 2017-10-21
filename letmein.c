@@ -1,17 +1,5 @@
 #include <stdio.h>
-#include <string.h>
-#include <openssl/evp.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include "json/cJSON.h"
-#include "json/cJSON.c"
-
-#define KEYLEN 16
-#define IV_HEADER_SIZE 33	// 32 + newline
-#define HASH_HEADER_SIZE 33
-#define NWORDS 5
+#include "letmein.h"
 
 int  FILE_OPEN = 0;	// is passwd file open
 char OPEN_FILENAME[64]; // filename
@@ -31,7 +19,32 @@ int splitstring(char *str, char *splits[], int len)
 	return i;
 }
 
-/* store len bytes of entropy in arr */
+/* Read password without echoing, storing it in lineptr (must
+ * be heap-allocated) */
+ssize_t get_pass(char **lineptr, size_t *n, FILE *stream)
+{
+	struct termios old, new;
+	int 	       nread;
+
+	/* Turn echoing off and fail if we can't. */
+	if (tcgetattr(fileno(stream), &old) != 0)
+		return -1;
+	new = old;
+	new.c_lflag &= ~ECHO;
+	if (tcsetattr(fileno(stream), TCSAFLUSH, &new) != 0)
+		return -1;
+
+	/* Read the password. */
+	printf("Enter password: ");
+	nread = getline(lineptr, n, stream);
+
+	/* Restore terminal. */
+	(void)tcsetattr(fileno (stream), TCSAFLUSH, &old);
+
+	return nread;
+}
+
+/* Store len bytes of entropy in arr */
 void get_random_bytes(unsigned char *arr, int len)
 {
 	int fd = open("/dev/urandom", O_RDONLY);
@@ -39,7 +52,7 @@ void get_random_bytes(unsigned char *arr, int len)
 	close(fd);
 }
 
-/* read initialization vector into string arr */
+/* Read initialization vector into string arr */
 void get_iv(char *filename, unsigned char *arr, int len)
 {
 	char   hexiv[len*2];
@@ -128,20 +141,6 @@ int do_crypt(FILE *infile, char *in, FILE *outfile, char *out,
 	return 1;
 }
 
-void print_usage()
-{
-	printf("Usage:\n" \
-		"\t./letmein\n"
-		"-e: encrypt\n"
-		"-d: decrypt\n");
-}
-
-void read_passwd(char *pass, int len)
-{
-	printf("Enter password:\n");
-	fgets(pass, len, stdin);
-}
-
 /* Reads entire file fp and returns the contents in a heap-allocated
  * char pointer */
 char *read_file(FILE *fp)
@@ -175,6 +174,7 @@ char *read_file(FILE *fp)
 	return buf;
 }
 
+/* Convert key[len] into hex string */
 void char_to_hex(unsigned char *key, unsigned char *key_hex, int len)
 {
 	for (int i = 0; i < len; i++)
@@ -188,7 +188,8 @@ void create_pass_file(char *filename)
 	unsigned char key[KEYLEN];
 	unsigned char iv[KEYLEN];
 	char 	      data_json[1024];
-	char 	      pass[40];
+	char 	      *pass;
+	size_t	      passlen = 40;
 
 	// file exists
 	if (access(filename, F_OK) != -1) {
@@ -196,9 +197,13 @@ void create_pass_file(char *filename)
 		return;
 	}
 	
+	pass = malloc(passlen * sizeof(char));
 	get_random_bytes(iv, sizeof(iv));
-	read_passwd(pass, sizeof(pass));
+	get_pass(&pass, &passlen, stdin);
+	// newline after no-echo passwd input
+	printf("\n");
 	key_from_password(pass, strlen(pass), key);
+	free(pass);
 
 	// convert key and iv to hex
 	unsigned char key_hex[32];
@@ -243,14 +248,17 @@ int decrypt_file(char *filename, char *decrstr)
 	unsigned char iv[KEYLEN];
 	unsigned char key_hex[2 * KEYLEN];
 	FILE 	      *f = fopen(filename, "r");
-	char	      pass[40];
+	char	      *pass;
+	size_t	      passlen = 40;
 
 	// file does not exist
 	if (access(filename, F_OK) == -1)
 		return 2;
 
-	read_passwd(pass, sizeof(pass));
+	pass = malloc(passlen * sizeof(char));
+	get_pass(&pass, &passlen, stdin);
 	key_from_password(pass, strlen(pass), key);
+	free(pass);
 	get_iv(filename, iv, sizeof(iv));
 	char_to_hex(key, key_hex, KEYLEN);
 	// set the file pointer after the (plaintext) iv header
@@ -293,21 +301,35 @@ void parse_open(char *args[], int nstr)
 	}
 }
 
+void parse_add(char *args[], int nstr)
+{
+	
+}
+
+void print_usage()
+{
+	printf("Usage:\n" \
+		"\tnew [file]: create new password file\n"
+		"\topen [file]: load password file\n"
+		"\tq(uit): exit the program\n");
+}
+
 void parse_arg(char *splits[], int nstr, short *quitshell)
 {
 	if (nstr > 0) {
 		if (!strcmp(splits[0], "q") || !strcmp(splits[0], "quit")) {
 			*quitshell = 1;
-			exit(1);
 		} else if (!strcmp(splits[0], "help")) {
 			//TODO: parse help
-			printf("dunno man, read the manual\n");
-		} else if (!strcmp(splits[0], "insert")) {
+			print_usage();
+		} else if (!strcmp(splits[0], "new")) {
 			parse_insert(splits + 1, nstr - 1);
 		} else if (!strcmp(splits[0], "open")) {
 			parse_open(splits + 1, nstr - 1);
+		} else if (!strcmp(splits[0], "add")) {
+			parse_add(splits + 1, nstr - 1);
 		} else {
-			printf("Unknown command. Type help for a list of "
+			printf("Unknown command. Type 'help' for a list of "
 			       "commands.\n");
 		}
 	}

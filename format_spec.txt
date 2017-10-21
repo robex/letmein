@@ -1,0 +1,12 @@
+.letmein format:
+
+First 33 bytes [0-32] (plain text):
+	initialization_vector (in hex) -> 32 bytes
+	newline character	       -> 1 byte
+
+Bytes [33-65] (encrypted with aes-128):
+	password_sha1 (in hex)	-> 32 bytes
+	newline character	-> 1 byte
+
+Bytes [65-EOF] (encrypted):
+	password storage structure in json
