@@ -277,12 +277,14 @@ int decrypt_file(char *filename, char *decrstr)
 		return 0;
 }
 
+/* Read string into buf and strip newline */
 void read_no_newline(char *buf, int len)
 {
 	fgets(buf, len, stdin);
 	buf[strcspn(buf, "\n")] = 0;
 }
 
+/* Prompt to add a new user to file */
 int add_new(char *args[], int nstr)
 {
 	char   title[64];

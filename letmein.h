@@ -40,6 +40,10 @@ void create_pass_file(char *filename);
 /* Decrypt and return the contents of file *filename
  * Return 1 on succesful decrypt, 0 otherwise */
 int decrypt_file(char *filename, char *decrstr);
+/* Read string into buf and strip newline */
+void read_no_newline(char *buf, int len);
+/* Prompt to add a new user to file */
+int add_new(char *args[], int nstr);
 void parse_insert(char *args[], int nstr);
 void parse_open(char *args[], int nstr);
 void parse_add(char *args[], int nstr);
