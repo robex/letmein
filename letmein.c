@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "letmein.h"
 
-int  FILE_OPEN = 0;	// is passwd file open
+int  IS_FILE_OPEN = 0;	// is passwd file open
 char OPEN_FILENAME[64]; // filename
 char *openfile;
 cJSON *openfile_json_root;
@@ -53,21 +53,37 @@ void get_random_bytes(unsigned char *arr, int len)
 	close(fd);
 }
 
-/* Read initialization vector into string arr */
-void get_iv(char *filename, unsigned char *arr, int len)
+/* Translate from hex string back to char array */
+void hex_to_char(char *hex, unsigned char *raw)
 {
-	char   hexiv[len*2];
-	char   *pos = hexiv;
-	FILE   *ivfile = fopen(filename, "r");
-
-	fread(hexiv, 1, len*2, ivfile);
-	fclose(ivfile);
-
-	// translate from hex string back to char array
+	char *pos = hex;
 	for(size_t count = 0; count < KEYLEN; count++) {
-		sscanf(pos, "%2hhx", &arr[count]);
+		sscanf(pos, "%2hhx", &raw[count]);
 		pos += 2;
 	}
+}
+
+/* Convert key[len] into hex string */
+void char_to_hex(unsigned char *key, unsigned char *key_hex, int len)
+{
+	for (int i = 0; i < len; i++)
+		sprintf((char*)key_hex + i*2, "%02x", key[i]);
+}
+
+/* Read initialization vector into string arr
+ * hex -> 0: return raw, 1: hex string*/
+void get_iv(char *filename, unsigned char *arr, int hex)
+{
+	char   hexiv[KEYLEN * 2];
+	FILE   *ivfile = fopen(filename, "r");
+
+	fread(hexiv, 1, KEYLEN * 2, ivfile);
+	fclose(ivfile);
+
+	if (hex)
+		arr = (unsigned char*)hexiv;
+	else
+		hex_to_char(hexiv, arr);
 }
 
 /* Gets unsalted hash from password *pass, returns key in *key */
@@ -175,13 +191,6 @@ char *read_file(FILE *fp)
 	return buf;
 }
 
-/* Convert key[len] into hex string */
-void char_to_hex(unsigned char *key, unsigned char *key_hex, int len)
-{
-	for (int i = 0; i < len; i++)
-		sprintf((char*)key_hex + i*2, "%02x", key[i]);
-}
-
 /* Creates a password storage file filename, consisting of the
  * hash (in hex) and the json data */
 void create_pass_file(char *filename)
@@ -202,8 +211,6 @@ void create_pass_file(char *filename)
 	get_random_bytes(iv, sizeof(iv));
 	printf("Enter password: ");
 	get_pass(&pass, &passlen, stdin);
-	// newline after no-echo passwd input
-	printf("\n");
 	key_from_password(pass, strlen(pass), key);
 	free(pass);
 
@@ -262,7 +269,7 @@ int decrypt_file(char *filename, char *decrstr)
 	get_pass(&pass, &passlen, stdin);
 	key_from_password(pass, strlen(pass), key);
 	free(pass);
-	get_iv(filename, iv, sizeof(iv));
+	get_iv(filename, iv, 0);
 	char_to_hex(key, key_hex, KEYLEN);
 	// set the file pointer after the (plaintext) iv header
 	fseek(f, IV_HEADER_SIZE, 0);
@@ -297,7 +304,7 @@ int add_new(char *args[], int nstr)
 	char   notes[256];
 
 	// no file is open
-	if (!FILE_OPEN) {
+	if (!IS_FILE_OPEN) {
 		printf("fatal: no open file.\n");
 		return 0;
 	}
@@ -336,28 +343,36 @@ int add_new(char *args[], int nstr)
 	cJSON_AddStringToObject(entry, "email", email);
 	cJSON_AddStringToObject(entry, "notes", notes);
 
-	printf("%s\n", cJSON_Print(openfile_json_root));
+	printf("Succesfully added entry %s\n", title);
+
+	/*printf("%s\n", cJSON_Print(openfile_json_root));*/
 	free(passwd);
 	free(passwd_repeat);
 	return 1;
 }
 
-void parse_insert(char *args[], int nstr)
+void parse_new(char *args[], int nstr)
 {
 	char filename[40];
 	sprintf(filename, "%s.letmein", args[0]);
 	create_pass_file(filename);
 }
 
+/* Open file *filename, loading the json */
 void parse_open(char *args[], int nstr)
 {
 	char filename[40];
 	int  status;
 	sprintf(filename, "%s.letmein", args[0]);
+	if (IS_FILE_OPEN) {
+		printf("File already opened. Aborting...\n");
+		return;
+	}
+		
 	openfile = malloc(2048 * sizeof(char));
 	status = decrypt_file(filename, openfile);
 	if (status == 1) {
-		FILE_OPEN = 1;
+		IS_FILE_OPEN = 1;
 		strcpy(OPEN_FILENAME, filename);
 		openfile_json_root = cJSON_Parse(openfile + IV_HEADER_SIZE);
 		printf("Opened file %s\n", OPEN_FILENAME);
@@ -375,12 +390,64 @@ void parse_add(char *args[], int nstr)
 	add_new(args, nstr);
 }
 
+/* Save current json file (overwrites) */
+void parse_save(char *args[], int nstr)
+{
+	unsigned char key[KEYLEN];
+	unsigned char iv[KEYLEN];
+	unsigned char iv_hex[33];
+	if (!IS_FILE_OPEN) {
+		printf("fatal: no file open.\n");
+		return;
+	}
+	hex_to_char(openfile, key);
+	get_iv(OPEN_FILENAME, iv, 0);
+	char_to_hex(iv, iv_hex, sizeof(iv));
+	iv_hex[32] = '\n';
+	// reopen file
+	FILE *f = fopen(OPEN_FILENAME, "w");
+	// write the hex iv
+	fwrite(iv_hex, 1, 33, f);
+	fseek(f, 33, 0);
+	// update openfile
+	strcpy(openfile + IV_HEADER_SIZE, cJSON_Print(openfile_json_root));
+	do_crypt(NULL, openfile, f, NULL, 1, key, iv);
+	fclose(f);
+}
+
+/* Close the current file and free the buffers */
+void close_file()
+{
+	if (!IS_FILE_OPEN) {
+		printf("fatal: file not open\n");
+		return;
+	}
+	cJSON_Delete(openfile_json_root);
+	free(openfile);
+	strcpy(OPEN_FILENAME, "");
+	IS_FILE_OPEN = 0;
+}
+
 void print_usage()
 {
 	printf("Usage:\n" \
 		"\tnew [file]: create new password file\n"
 		"\topen [file]: load password file\n"
+		"\tsave: save current password file\n"
+		"\tclose: close current password file\n"
+		"\tadd: add new entry to current file"
 		"\tq(uit): exit the program\n");
+}
+
+/* Dump json of currently open file */
+void print_debug()
+{
+	if (!IS_FILE_OPEN) {
+		printf("fatal: file not open\n");
+		return;
+	} else {
+		printf("%s\n", openfile); //debug
+	}
 }
 
 void parse_arg(char *splits[], int nstr, short *quitshell)
@@ -392,11 +459,17 @@ void parse_arg(char *splits[], int nstr, short *quitshell)
 			//TODO: parse help
 			print_usage();
 		} else if (!strcmp(splits[0], "new")) {
-			parse_insert(splits + 1, nstr - 1);
+			parse_new(splits + 1, nstr - 1);
 		} else if (!strcmp(splits[0], "open")) {
 			parse_open(splits + 1, nstr - 1);
+		} else if (!strcmp(splits[0], "save")) {
+			parse_save(splits + 1, nstr - 1);
+		} else if (!strcmp(splits[0], "close")) {
+			close_file();
 		} else if (!strcmp(splits[0], "add")) {
 			parse_add(splits + 1, nstr - 1);
+		} else if (!strcmp(splits[0], "print")) {
+			print_debug();
 		} else {
 			printf("Unknown command. Type 'help' for a list of "
 			       "commands.\n");

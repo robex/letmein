@@ -21,8 +21,12 @@ int splitstring(char *str, char *splits[], int len);
 ssize_t get_pass(char **lineptr, size_t *n, FILE *stream);
 /* Store len bytes of entropy in arr */
 void get_random_bytes(unsigned char *arr, int len);
+/* Translate from hex string back to char array */
+void hex_to_char(char *hex, unsigned char *raw);
+/* Convert key[len] into hex string */
+void char_to_hex(unsigned char *key, unsigned char *key_hex, int len);
 /* Read initialization vector into string arr */
-void get_iv(char *filename, unsigned char *arr, int len);
+void get_iv(char *filename, unsigned char *arr, int hex);
 /* Gets unsalted hash from password *pass, returns key in *key */
 void key_from_password(char *pass, int passlen, unsigned char *key);
 // do_encrypt -> 1 = encryption, 0 = decryption
@@ -32,8 +36,6 @@ int do_crypt(FILE *infile, char *in, FILE *outfile, char *out,
 /* Reads entire file fp and returns the contents in a heap-allocated
  * char pointer */
 char *read_file(FILE *fp);
-/* Convert key[len] into hex string */
-void char_to_hex(unsigned char *key, unsigned char *key_hex, int len);
 /* Creates a password storage file filename, consisting of the
  * hash (in hex) and the json data */
 void create_pass_file(char *filename);
@@ -45,7 +47,14 @@ void read_no_newline(char *buf, int len);
 /* Prompt to add a new user to file */
 int add_new(char *args[], int nstr);
 void parse_insert(char *args[], int nstr);
+/* Open file *filename, loading the json */
 void parse_open(char *args[], int nstr);
 void parse_add(char *args[], int nstr);
+/* Save current json file (overwrites) */
+void parse_save(char *args[], int nstr);
+/* Close the current file and free the buffers */
+void close_file();
 void print_usage();
+/* Dump json of currently open file */
+void print_debug();
 void parse_arg(char *splits[], int nstr, short *quitshell);
