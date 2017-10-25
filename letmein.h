@@ -46,12 +46,14 @@ int decrypt_file(char *filename, char *decrstr);
 void read_no_newline(char *buf, int len);
 /* Prompt to add a new user to file */
 int add_new(char *args[], int nstr);
-void parse_insert(char *args[], int nstr);
+void parse_new(char *args[], int nstr);
 /* Open file *filename, loading the json */
 void parse_open(char *args[], int nstr);
 void parse_add(char *args[], int nstr);
 /* Save current json file (overwrites) */
 void parse_save(char *args[], int nstr);
+/* Show all the titles of the entries */
+void parse_show(char *args[], int nstr)
 /* Close the current file and free the buffers */
 void close_file();
 void print_usage();

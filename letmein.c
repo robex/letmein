@@ -229,8 +229,12 @@ void create_pass_file(char *filename)
 	data_json[sizeof(key_hex)] = '\n';
 
 	cJSON *root;
+	cJSON *entries;
 	// create empty json object
 	root = cJSON_CreateObject();
+	entries = cJSON_CreateArray();
+	cJSON_AddItemToObject(root, "entries", entries);
+	
 	char *json = cJSON_Print(root);
 
 	// copy json string after the 0xKey
@@ -335,13 +339,16 @@ int add_new(char *args[], int nstr)
 	printf("Notes: ");
 	read_no_newline(notes, sizeof(notes));
 	
+	cJSON *entries = cJSON_GetObjectItem(openfile_json_root, "entries");
 	cJSON *entry = cJSON_CreateObject();
-	cJSON_AddItemToObject(openfile_json_root, title, entry);
+	cJSON_AddStringToObject(entry, "title", title);
 	cJSON_AddStringToObject(entry, "username", username);
 	cJSON_AddStringToObject(entry, "site_url", site_url);
 	cJSON_AddStringToObject(entry, "passwd", passwd);
 	cJSON_AddStringToObject(entry, "email", email);
 	cJSON_AddStringToObject(entry, "notes", notes);
+
+	cJSON_AddItemToArray(entries, entry);
 
 	printf("Succesfully added entry %s\n", title);
 
@@ -415,6 +422,19 @@ void parse_save(char *args[], int nstr)
 	fclose(f);
 }
 
+/* Show all the titles of the entries */
+void parse_show(char *args[], int nstr)
+{
+	if (!strcmp(args[0], "-a")) {
+		cJSON *entries = cJSON_GetObjectItem(openfile_json_root, "entries");
+		for (int i = 0; i < cJSON_GetArraySize(entries); i++) {
+			cJSON *entry = cJSON_GetArrayItem(entries, i);
+			cJSON *title = cJSON_GetObjectItem(entry, "title");
+			printf("%s\n", cJSON_Print(title));
+		}
+	}
+}
+
 /* Close the current file and free the buffers */
 void close_file()
 {
@@ -468,6 +488,8 @@ void parse_arg(char *splits[], int nstr, short *quitshell)
 			close_file();
 		} else if (!strcmp(splits[0], "add")) {
 			parse_add(splits + 1, nstr - 1);
+		} else if (!strcmp(splits[0], "show")) {
+			parse_show(splits + 1, nstr - 1);
 		} else if (!strcmp(splits[0], "print")) {
 			print_debug();
 		} else {
