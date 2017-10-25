@@ -53,7 +53,9 @@ void parse_add(char *args[], int nstr);
 /* Save current json file (overwrites) */
 void parse_save(char *args[], int nstr);
 /* Show all the titles of the entries */
-void parse_show(char *args[], int nstr)
+void show_all();
+/* Parse arguments for the show command */
+void parse_show(char *args[], int nstr);
 /* Close the current file and free the buffers */
 void close_file();
 void print_usage();

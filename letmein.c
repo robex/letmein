@@ -423,15 +423,25 @@ void parse_save(char *args[], int nstr)
 }
 
 /* Show all the titles of the entries */
+void show_all()
+{
+	cJSON *entries = cJSON_GetObjectItem(openfile_json_root, "entries");
+	for (int i = 0; i < cJSON_GetArraySize(entries); i++) {
+		cJSON *entry = cJSON_GetArrayItem(entries, i);
+		cJSON *title = cJSON_GetObjectItem(entry, "title");
+		printf("%s\n", cJSON_Print(title));
+	}
+}
+
+/* Parse arguments for the show command */
 void parse_show(char *args[], int nstr)
 {
+	if (!IS_FILE_OPEN || args[0] == NULL) {
+		printf("fatal: file not open\n");
+		return;
+	}
 	if (!strcmp(args[0], "-a")) {
-		cJSON *entries = cJSON_GetObjectItem(openfile_json_root, "entries");
-		for (int i = 0; i < cJSON_GetArraySize(entries); i++) {
-			cJSON *entry = cJSON_GetArrayItem(entries, i);
-			cJSON *title = cJSON_GetObjectItem(entry, "title");
-			printf("%s\n", cJSON_Print(title));
-		}
+		show_all();
 	}
 }
 
@@ -450,12 +460,13 @@ void close_file()
 
 void print_usage()
 {
-	printf("Usage:\n" \
+	printf("Usage:\n"
 		"\tnew [file]: create new password file\n"
 		"\topen [file]: load password file\n"
 		"\tsave: save current password file\n"
 		"\tclose: close current password file\n"
-		"\tadd: add new entry to current file"
+		"\tadd: add new entry to current file\n"
+		"\tshow: show all entry titles\n"
 		"\tq(uit): exit the program\n");
 }
 
