@@ -334,7 +334,7 @@ int add_new(char *args[], int nstr)
 
 	// no file is open
 	if (!IS_FILE_OPEN) {
-		printf("fatal: no open file.\n");
+		printf("fatal: file not open\n");
 		return 0;
 	}
 
@@ -429,7 +429,7 @@ void parse_save(char *args[], int nstr)
 	unsigned char iv[KEYLEN];
 	unsigned char iv_hex[33];
 	if (!IS_FILE_OPEN) {
-		printf("fatal: no file open.\n");
+		printf("fatal: file not open\n");
 		return;
 	}
 	hex_to_char(openfile, key);
