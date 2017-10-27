@@ -13,6 +13,11 @@
 #define HASH_HEADER_SIZE 33
 #define NWORDS 5
 
+struct help_cmds {
+	char *help_names[9];
+	char *help_descs[9];
+};
+
 /* Splits the given null-terminated string str[] by the spaces.
  * The resulting words are stored in splits[]. Returns the # of words */
 int splitstring(char *str, char *splits[], int len);
@@ -54,11 +59,16 @@ void parse_add(char *args[], int nstr);
 void parse_save(char *args[], int nstr);
 /* Show all the titles of the entries */
 void show_all();
+/* Pretty print the entry *entry */
+void show_print_entry(cJSON *entry);
+/* Get the entry with title entryname */
+void show_get_entry(char *entryname);
 /* Parse arguments for the show command */
 void parse_show(char *args[], int nstr);
 /* Close the current file and free the buffers */
 void close_file();
-void print_usage();
+/* Parse and print help command */
+void help_print(char *arg);
 /* Dump json of currently open file */
 void print_debug();
 void parse_arg(char *splits[], int nstr, short *quitshell);

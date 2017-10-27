@@ -4,7 +4,32 @@
 int  IS_FILE_OPEN = 0;	// is passwd file open
 char OPEN_FILENAME[64]; // filename
 char *openfile;
-cJSON *openfile_json_root;
+cJSON *ROOT;
+
+struct help_cmds help = {
+	{
+		"help",
+		"new",
+		"open",
+		"save",
+		"close",
+		"add",
+		"show",
+		"q", "quit",
+	}, {
+		"help [cmd]: show help of command cmd",
+		"new [file]: create a new password file [file].letmein",
+		"open [file]: load the password file [file].letmein",
+		"save: save the changes in the current password file",
+		"close: close the current password file",
+		"add: add a new entry to the current password file",
+		"show [entry]: show all the entry titles\n"
+			"\t if [entry] is specified, show the whole entry",
+		"q(uit): exit the program",
+		"q(uit): exit the program",
+	}
+};
+	
 
 /* Splits the given null-terminated string str[] by the spaces.
  * The resulting words are stored in splits[]. Returns the # of words */
@@ -339,7 +364,7 @@ int add_new(char *args[], int nstr)
 	printf("Notes: ");
 	read_no_newline(notes, sizeof(notes));
 	
-	cJSON *entries = cJSON_GetObjectItem(openfile_json_root, "entries");
+	cJSON *entries = cJSON_GetObjectItem(ROOT, "entries");
 	cJSON *entry = cJSON_CreateObject();
 	cJSON_AddStringToObject(entry, "title", title);
 	cJSON_AddStringToObject(entry, "username", username);
@@ -352,7 +377,7 @@ int add_new(char *args[], int nstr)
 
 	printf("Succesfully added entry %s\n", title);
 
-	/*printf("%s\n", cJSON_Print(openfile_json_root));*/
+	/*printf("%s\n", cJSON_Print(ROOT));*/
 	free(passwd);
 	free(passwd_repeat);
 	return 1;
@@ -381,7 +406,7 @@ void parse_open(char *args[], int nstr)
 	if (status == 1) {
 		IS_FILE_OPEN = 1;
 		strcpy(OPEN_FILENAME, filename);
-		openfile_json_root = cJSON_Parse(openfile + IV_HEADER_SIZE);
+		ROOT = cJSON_Parse(openfile + IV_HEADER_SIZE);
 		printf("Opened file %s\n", OPEN_FILENAME);
 	} else if (status == 0) {
 		printf("%s: Invalid password\n", filename);
@@ -417,7 +442,7 @@ void parse_save(char *args[], int nstr)
 	fwrite(iv_hex, 1, 33, f);
 	fseek(f, 33, 0);
 	// update openfile
-	strcpy(openfile + IV_HEADER_SIZE, cJSON_Print(openfile_json_root));
+	strcpy(openfile + IV_HEADER_SIZE, cJSON_Print(ROOT));
 	do_crypt(NULL, openfile, f, NULL, 1, key, iv);
 	fclose(f);
 }
@@ -425,23 +450,53 @@ void parse_save(char *args[], int nstr)
 /* Show all the titles of the entries */
 void show_all()
 {
-	cJSON *entries = cJSON_GetObjectItem(openfile_json_root, "entries");
+	cJSON *entries = cJSON_GetObjectItem(ROOT, "entries");
 	for (int i = 0; i < cJSON_GetArraySize(entries); i++) {
 		cJSON *entry = cJSON_GetArrayItem(entries, i);
 		cJSON *title = cJSON_GetObjectItem(entry, "title");
-		printf("%s\n", cJSON_Print(title));
+		cJSON *url = cJSON_GetObjectItem(entry, "site_url");
+		printf("- %s, ", title->valuestring);
+		printf("%s\n", url->valuestring);
+	}
+}
+
+/* Pretty print the entry *entry */
+void show_print_entry(cJSON *entry)
+{
+	cJSON *subitem = cJSON_GetObjectItem(entry, "title");
+	printf("\nTITLE: %s\n", subitem->valuestring); 
+	printf("\tUsername: %s\n", subitem->next->valuestring);
+	printf("\tURL: %s\n", subitem->next->valuestring);
+	printf("\tPassword: %s\n", subitem->next->valuestring);
+	printf("\tE-mail: %s\n", subitem->next->valuestring);
+	printf("\tAdditional notes: %s\n\n", subitem->next->valuestring);
+}
+
+/* Get the entry with title entryname */
+void show_get_entry(char *entryname)
+{
+	cJSON *entries = cJSON_GetObjectItem(ROOT, "entries");
+	for (int i = 0; i < cJSON_GetArraySize(entries); i++) {
+		cJSON *entry = cJSON_GetArrayItem(entries, i);
+		cJSON *title = cJSON_GetObjectItem(entry, "title");
+		if (!strcmp(title->valuestring, entryname)) {
+			show_print_entry(entry);
+			break;
+		}
 	}
 }
 
 /* Parse arguments for the show command */
 void parse_show(char *args[], int nstr)
 {
-	if (!IS_FILE_OPEN || args[0] == NULL) {
+	if (!IS_FILE_OPEN) {
 		printf("fatal: file not open\n");
 		return;
-	}
-	if (!strcmp(args[0], "-a")) {
+	} else if (args[0] == NULL) {
 		show_all();
+	// show entry passed as argument
+	} else {
+		show_get_entry(args[0]);
 	}
 }
 
@@ -452,22 +507,35 @@ void close_file()
 		printf("fatal: file not open\n");
 		return;
 	}
-	cJSON_Delete(openfile_json_root);
+	cJSON_Delete(ROOT);
 	free(openfile);
 	strcpy(OPEN_FILENAME, "");
 	IS_FILE_OPEN = 0;
 }
 
-void print_usage()
+/* Parse and print help command */
+void help_print(char *arg)
 {
-	printf("Usage:\n"
-		"\tnew [file]: create new password file\n"
-		"\topen [file]: load password file\n"
-		"\tsave: save current password file\n"
-		"\tclose: close current password file\n"
-		"\tadd: add new entry to current file\n"
-		"\tshow: show all entry titles\n"
-		"\tq(uit): exit the program\n");
+	int i;
+	int helplen = sizeof(help.help_names) / sizeof(help.help_names[0]);
+	int found = 0;
+	if (arg == NULL) {
+		printf("Type help [cmd] for info about a command:\n");
+		for (i = 0; i < helplen - 1; i++) {
+			printf("%s, ", help.help_names[i]);
+		}
+		printf("%s\n", help.help_names[i]);
+	} else {
+		for (i = 0; i < helplen; i++) {
+			if (!strcmp(help.help_names[i], arg)) {
+				printf("%s\n", help.help_descs[i]);
+				found = 1;
+				break;
+			}
+		}
+		if (!found)
+			printf("help: cmd '%s' does not exist.\n", arg);
+	}
 }
 
 /* Dump json of currently open file */
@@ -488,7 +556,7 @@ void parse_arg(char *splits[], int nstr, short *quitshell)
 			*quitshell = 1;
 		} else if (!strcmp(splits[0], "help")) {
 			//TODO: parse help
-			print_usage();
+			help_print(splits[1]);
 		} else if (!strcmp(splits[0], "new")) {
 			parse_new(splits + 1, nstr - 1);
 		} else if (!strcmp(splits[0], "open")) {
