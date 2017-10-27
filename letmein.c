@@ -578,13 +578,35 @@ void parse_arg(char *splits[], int nstr, short *quitshell)
 	}
 }
 
+/* What a mess
+ * TODO: If terminal is too small dont print it, center */
+void print_banner()
+{
+	// clear the screen
+	write(STDOUT_FILENO, "\x1b[2J", 4);
+	// move cursor to first row and first col
+	write(STDOUT_FILENO, "\x1b[H", 3);
+
+	printf(
+"	 ___           __                                      \n"
+"	/\\_ \\         /\\ \\__                     __            \n"
+"	\\//\\ \\      __\\ \\ ,_\\   ___ ___      __ /\\_\\    ___    \n"
+"	  \\ \\ \\   /'__`\\ \\ \\/ /' __` __`\\  /'__`\\/\\ \\ /' _ `\\  \n"
+"	   \\_\\ \\_/\\  __/\\ \\ \\_/\\ \\/\\ \\/\\ \\/\\  __/\\ \\ \\/\\ \\/\\ \\ \n"
+"	   /\\____\\ \\____\\\\ \\__\\ \\_\\ \\_\\ \\_\\ \\____\\\\ \\_\\ \\_\\ \\_\\\n"
+"	   \\/____/\\/____/ \\/__/\\/_/\\/_/\\/_/\\/____/ \\/_/\\/_/\\/_/\n"
+	
+	"\n                           by r0bex - 2017\n\n");
+}
+
 int main(int argc, char *argv[])
 {
 	short quit = 0;
 	char  buffer[64];
 	char  *splits[NWORDS];
 	int   nstr;
-
+	
+	print_banner();
 	while (!quit) {
 		printf("> ");
 		fgets(buffer, sizeof(buffer), stdin);

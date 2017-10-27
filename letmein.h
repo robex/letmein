@@ -72,3 +72,5 @@ void help_print(char *arg);
 /* Dump json of currently open file */
 void print_debug();
 void parse_arg(char *splits[], int nstr, short *quitshell);
+/* What a mess */
+void print_banner();
