@@ -18,6 +18,11 @@ struct help_cmds {
 	char *help_descs[9];
 };
 
+struct array_item {
+	cJSON *entry;
+	int index;
+};
+
 /* Splits the given null-terminated string str[] by the spaces.
  * The resulting words are stored in splits[]. Returns the # of words */
 int splitstring(char *str, char *splits[], int len);
@@ -62,7 +67,7 @@ void show_all();
 /* Pretty print the entry *entry */
 void show_print_entry(cJSON *entry);
 /* Get the entry with title entryname */
-void show_get_entry(char *entryname);
+struct array_item show_get_entry(char *entryname);
 /* Parse arguments for the show command */
 void parse_show(char *args[], int nstr);
 /* Close the current file and free the buffers */

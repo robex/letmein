@@ -45,6 +45,16 @@ int splitstring(char *str, char *splits[], int len)
 	return i;
 }
 
+int sure()
+{
+	char opt;
+	printf("Are you sure? y/n: ");
+	if ((opt = getchar()) == 'y')
+		return 1;
+	else 
+		return 0;
+}
+
 /* Read password without echoing, storing it in lineptr (must
  * be heap-allocated) */
 ssize_t get_pass(char **lineptr, size_t *n, FILE *stream)
@@ -386,6 +396,10 @@ int add_new(char *args[], int nstr)
 void parse_new(char *args[], int nstr)
 {
 	char filename[40];
+	if (args[0] == NULL) {
+		printf("error: must pass a filename\n");
+		return;
+	}
 	sprintf(filename, "%s.letmein", args[0]);
 	create_pass_file(filename);
 }
@@ -428,6 +442,7 @@ void parse_save(char *args[], int nstr)
 	unsigned char key[KEYLEN];
 	unsigned char iv[KEYLEN];
 	unsigned char iv_hex[33];
+
 	if (!IS_FILE_OPEN) {
 		printf("fatal: file not open\n");
 		return;
@@ -473,17 +488,23 @@ void show_print_entry(cJSON *entry)
 }
 
 /* Get the entry with title entryname */
-void show_get_entry(char *entryname)
+struct array_item show_get_entry(char *entryname)
 {
 	cJSON *entries = cJSON_GetObjectItem(ROOT, "entries");
+	struct array_item item;
+	item.entry = NULL;
+	item.index = -1;
+
 	for (int i = 0; i < cJSON_GetArraySize(entries); i++) {
 		cJSON *entry = cJSON_GetArrayItem(entries, i);
 		cJSON *title = cJSON_GetObjectItem(entry, "title");
 		if (!strcmp(title->valuestring, entryname)) {
-			show_print_entry(entry);
-			break;
+			item.entry = entry;
+			item.index = i;
+			return item;
 		}
 	}
+	return item;
 }
 
 /* Parse arguments for the show command */
@@ -496,7 +517,12 @@ void parse_show(char *args[], int nstr)
 		show_all();
 	// show entry passed as argument
 	} else {
-		show_get_entry(args[0]);
+		struct array_item item = show_get_entry(args[0]);
+			if (item.entry == NULL) {
+				printf("entry %s not found\n", args[0]);
+				return;
+			}
+		show_print_entry(item.entry);
 	}
 }
 
@@ -519,6 +545,7 @@ void help_print(char *arg)
 	int i;
 	int helplen = sizeof(help.help_names) / sizeof(help.help_names[0]);
 	int found = 0;
+
 	if (arg == NULL) {
 		printf("Type help [cmd] for info about a command:\n");
 		for (i = 0; i < helplen - 1; i++) {
@@ -538,6 +565,33 @@ void help_print(char *arg)
 	}
 }
 
+void rm_entry(char *entryname)
+{
+	if (!IS_FILE_OPEN) {
+		printf("fatal: file not open\n");
+		return;
+	}
+	struct array_item item = show_get_entry(entryname);
+
+	// entry does not exist
+	if (item.entry == NULL) {
+		printf("entry %s not found\n", entryname);
+		return;
+	}
+	if (!sure())
+		return;
+	cJSON *entries = cJSON_GetObjectItem(ROOT, "entries");
+	cJSON_DetachItemFromArray(entries, item.index);
+}
+
+void parse_rm(char *args[], int nargs)
+{
+	if (args[0] == NULL)
+		printf("error: must supply an entry name\n");
+	else
+		rm_entry(args[0]);
+}
+
 /* Dump json of currently open file */
 void print_debug()
 {
@@ -555,7 +609,6 @@ void parse_arg(char *splits[], int nstr, short *quitshell)
 		if (!strcmp(splits[0], "q") || !strcmp(splits[0], "quit")) {
 			*quitshell = 1;
 		} else if (!strcmp(splits[0], "help")) {
-			//TODO: parse help
 			help_print(splits[1]);
 		} else if (!strcmp(splits[0], "new")) {
 			parse_new(splits + 1, nstr - 1);
@@ -567,6 +620,8 @@ void parse_arg(char *splits[], int nstr, short *quitshell)
 			close_file();
 		} else if (!strcmp(splits[0], "add")) {
 			parse_add(splits + 1, nstr - 1);
+		} else if (!strcmp(splits[0], "rm")) {
+			parse_rm(splits + 1, nstr - 1);
 		} else if (!strcmp(splits[0], "show")) {
 			parse_show(splits + 1, nstr - 1);
 		} else if (!strcmp(splits[0], "print")) {
