@@ -14,8 +14,8 @@
 #define NWORDS 5
 
 struct help_cmds {
-	char *help_names[9];
-	char *help_descs[9];
+	char *help_names[11];
+	char *help_descs[11];
 };
 
 struct array_item {
@@ -28,7 +28,7 @@ struct array_item {
 int splitstring(char *str, char *splits[], int len);
 /* Read password without echoing, storing it in lineptr (must
  * be heap-allocated) */
-ssize_t get_pass(char **lineptr, size_t *n, FILE *stream);
+ssize_t get_pass_raw(char **lineptr, size_t *n, FILE *stream);
 /* Store len bytes of entropy in arr */
 void get_random_bytes(unsigned char *arr, int len);
 /* Translate from hex string back to char array */
@@ -54,6 +54,8 @@ void create_pass_file(char *filename);
 int decrypt_file(char *filename, char *decrstr);
 /* Read string into buf and strip newline */
 void read_no_newline(char *buf, int len);
+/* Prompt, check and store in passwd a password without echoing */
+int get_pass_str(char **passwd);
 /* Prompt to add a new user to file */
 int add_new(char *args[], int nstr);
 void parse_new(char *args[], int nstr);
@@ -74,6 +76,13 @@ void parse_show(char *args[], int nstr);
 void close_file();
 /* Parse and print help command */
 void help_print(char *arg);
+/* Deletes entry entryname */
+void rm_entry(char *entryname);
+void parse_rm(char *args[], int nargs);
+/* Edit the entry entryname, where field may be any of the json
+ * key values */
+void edit_entry(char *entryname, char *fieldname);
+void parse_edit(char *args[], int nargs);
 /* Dump json of currently open file */
 void print_debug();
 void parse_arg(char *splits[], int nstr, short *quitshell);

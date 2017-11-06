@@ -15,6 +15,8 @@ struct help_cmds help = {
 		"close",
 		"add",
 		"show",
+		"rm",
+		"edit",
 		"q", "quit",
 	}, {
 		"help [cmd]: show help of command cmd",
@@ -25,6 +27,10 @@ struct help_cmds help = {
 		"add: add a new entry to the current password file",
 		"show [entry]: show all the entry titles\n"
 			"\t if [entry] is specified, show the whole entry",
+		"rm [entry]: delete the specified entry",
+		"edit [entry] [field]: edit the specified field of entry\n"
+			"\t field names are: title, username, site_url, "
+			"passwd, email, notes",
 		"q(uit): exit the program",
 		"q(uit): exit the program",
 	}
@@ -57,7 +63,7 @@ int sure()
 
 /* Read password without echoing, storing it in lineptr (must
  * be heap-allocated) */
-ssize_t get_pass(char **lineptr, size_t *n, FILE *stream)
+ssize_t get_pass_raw(char **lineptr, size_t *n, FILE *stream)
 {
 	struct termios old, new;
 	int 	       nread;
@@ -245,7 +251,7 @@ void create_pass_file(char *filename)
 	pass = malloc(passlen * sizeof(char));
 	get_random_bytes(iv, sizeof(iv));
 	printf("Enter password: ");
-	get_pass(&pass, &passlen, stdin);
+	get_pass_raw(&pass, &passlen, stdin);
 	key_from_password(pass, strlen(pass), key);
 	free(pass);
 
@@ -305,7 +311,7 @@ int decrypt_file(char *filename, char *decrstr)
 
 	pass = malloc(passlen * sizeof(char));
 	printf("Enter password: ");
-	get_pass(&pass, &passlen, stdin);
+	get_pass_raw(&pass, &passlen, stdin);
 	key_from_password(pass, strlen(pass), key);
 	free(pass);
 	get_iv(filename, iv, 0);
@@ -330,14 +336,37 @@ void read_no_newline(char *buf, int len)
 	buf[strcspn(buf, "\n")] = 0;
 }
 
+/* Prompt, check and store in passwd a password without echoing */
+int get_pass_str(char **passwd)
+{
+	char   *passwd_repeat;
+	size_t passlen = 40;
+
+	printf("Password: ");
+	*passwd = malloc(passlen * sizeof(char));
+	passwd_repeat = malloc(passlen * sizeof(char));
+	get_pass_raw(&(*passwd), &passlen, stdin);
+	(*passwd)[strcspn(*passwd, "\n")] = 0;
+	printf("Repeat password: ");
+	get_pass_raw(&passwd_repeat, &passlen, stdin);
+	passwd_repeat[strcspn(passwd_repeat, "\n")] = 0;
+	// passwords are different
+	if (strcmp(*passwd, passwd_repeat)) {
+		printf("Passwords do not match. Aborting...\n");
+		free(*passwd);
+		free(passwd_repeat);
+		return 0;
+	}
+	free(passwd_repeat);
+	return 1;
+}
+
 /* Prompt to add a new user to file */
 int add_new(char *args[], int nstr)
 {
 	char   title[64];
 	char   site_url[64];
-	char   *passwd;
-	char   *passwd_repeat;
-	size_t passlen = 40;
+	char   *passwd = NULL;
 	char   username[64];
 	char   email[64];
 	char   notes[256];
@@ -352,23 +381,10 @@ int add_new(char *args[], int nstr)
 	read_no_newline(title, sizeof(title));
 	printf("Username: ");
 	read_no_newline(username, sizeof(username));
-	printf("Password: ");
-	passwd = malloc(passlen * sizeof(char));
-	passwd_repeat = malloc(passlen * sizeof(char));
-	get_pass(&passwd, &passlen, stdin);
-	passwd[strcspn(passwd, "\n")] = 0;
-	printf("Repeat password: ");
-	get_pass(&passwd_repeat, &passlen, stdin);
-	passwd_repeat[strcspn(passwd_repeat, "\n")] = 0;
-	// passwords are different
-	if (strcmp(passwd, passwd_repeat)) {
-		printf("Passwords do not match. Aborting...\n");
-		free(passwd);
-		free(passwd_repeat);
-		return 0;
-	}
 	printf("URL: ");
 	read_no_newline(site_url, sizeof(site_url));
+	if (!get_pass_str(&passwd))
+		return 0;
 	printf("Email: ");
 	read_no_newline(email, sizeof(email));
 	printf("Notes: ");
@@ -389,7 +405,6 @@ int add_new(char *args[], int nstr)
 
 	/*printf("%s\n", cJSON_Print(ROOT));*/
 	free(passwd);
-	free(passwd_repeat);
 	return 1;
 }
 
@@ -481,9 +496,13 @@ void show_print_entry(cJSON *entry)
 	cJSON *subitem = cJSON_GetObjectItem(entry, "title");
 	printf("\nTITLE: %s\n", subitem->valuestring); 
 	printf("\tUsername: %s\n", subitem->next->valuestring);
+	subitem = subitem->next;
 	printf("\tURL: %s\n", subitem->next->valuestring);
+	subitem = subitem->next;
 	printf("\tPassword: %s\n", subitem->next->valuestring);
+	subitem = subitem->next;
 	printf("\tE-mail: %s\n", subitem->next->valuestring);
+	subitem = subitem->next;
 	printf("\tAdditional notes: %s\n\n", subitem->next->valuestring);
 }
 
@@ -519,7 +538,8 @@ void parse_show(char *args[], int nstr)
 	} else {
 		struct array_item item = show_get_entry(args[0]);
 			if (item.entry == NULL) {
-				printf("entry %s not found\n", args[0]);
+				printf("error: entry %s not found\n",
+				       args[0]);
 				return;
 			}
 		show_print_entry(item.entry);
@@ -565,6 +585,7 @@ void help_print(char *arg)
 	}
 }
 
+/* Deletes entry entryname */
 void rm_entry(char *entryname)
 {
 	if (!IS_FILE_OPEN) {
@@ -575,7 +596,7 @@ void rm_entry(char *entryname)
 
 	// entry does not exist
 	if (item.entry == NULL) {
-		printf("entry %s not found\n", entryname);
+		printf("error: entry %s not found\n", entryname);
 		return;
 	}
 	if (!sure())
@@ -590,6 +611,53 @@ void parse_rm(char *args[], int nargs)
 		printf("error: must supply an entry name\n");
 	else
 		rm_entry(args[0]);
+}
+
+/* Edit the entry entryname, where field may be any of the json
+ * key values */
+void edit_entry(char *entryname, char *fieldname)
+{
+	// new value for the field
+	char *value = NULL;
+
+	if (!IS_FILE_OPEN) {
+		printf("fatal: file not open\n");
+		return;
+	}
+	struct array_item item = show_get_entry(entryname);
+
+	// entry does not exist
+	if (item.entry == NULL) {
+		printf("error: entry %s not found\n", entryname);
+		return;
+	}
+
+	// special case to edit the password
+	if (!strcmp(fieldname, "passwd")) {
+		if (!get_pass_str(&value))
+			return;
+
+	} else {
+		value = malloc(64 * sizeof(char));
+		printf("Enter new %s: ", fieldname);
+		read_no_newline(value, 64);
+	}
+	
+	cJSON *selected_field = cJSON_GetObjectItem(item.entry, fieldname);
+	// release old value
+	free(selected_field->valuestring);
+	// allocate exact size for new string
+	selected_field->valuestring = malloc(strlen(value));
+	strcpy(selected_field->valuestring, value);
+	free(value);
+}
+
+void parse_edit(char *args[], int nargs)
+{
+	if (args[0] == NULL || args[1] == NULL)
+		printf("error: must specify an entry name and a field name\n");
+	else
+		edit_entry(args[0], args[1]);
 }
 
 /* Dump json of currently open file */
@@ -622,6 +690,8 @@ void parse_arg(char *splits[], int nstr, short *quitshell)
 			parse_add(splits + 1, nstr - 1);
 		} else if (!strcmp(splits[0], "rm")) {
 			parse_rm(splits + 1, nstr - 1);
+		} else if (!strcmp(splits[0], "edit")) {
+			parse_edit(splits + 1, nstr - 1);
 		} else if (!strcmp(splits[0], "show")) {
 			parse_show(splits + 1, nstr - 1);
 		} else if (!strcmp(splits[0], "print")) {
