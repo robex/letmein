@@ -1,4 +1,5 @@
 letmein
 proto/
 tests/
-file.letmein
+*.letmein
+*.swp
